@@ -32,12 +32,14 @@ void media_decoder::handle_media(std::string url, fun_type fun, std::shared_ptr<
 
 void media_decoder::work(std::string url, fun_type fun, int width_out, int height_out, std::shared_ptr<std::atomic_bool> p_stop){
     AVFormatContext *p_context = nullptr;
+    // 打开视频
     auto ret = avformat_open_input(&p_context, url.c_str(), nullptr, nullptr);
     if (0 != ret)
     {
         LOG_ERROR("打开url失败;  错误代码:" << ret << "; 路径:" << url);
         return ;
     }
+    // 获取视频信息
     ret = avformat_find_stream_info(p_context, nullptr);
     if (0 > ret)
     {
@@ -45,6 +47,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
         return;
     }
 
+    // 查找视频流
     AVCodec *pi_code = nullptr;
     auto index_video = av_find_best_stream(p_context, AVMEDIA_TYPE_VIDEO, -1, -1, &(pi_code), 0);
     if (0 > index_video)
@@ -54,6 +57,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
     }
     auto p_video_stream = p_context->streams[index_video];
     auto p_video_code_ctx = avcodec_alloc_context3(pi_code);
+    // 复制视频流中相关参数到视频上下文，不然p_video_code_ctx某些参数会丢失
     ret = avcodec_parameters_to_context(p_video_code_ctx, p_video_stream->codecpar);
     if(0 > ret){
         return;
@@ -63,6 +67,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
         return;
     }
 
+    // 申请了两个Frame，一个用来存储解码后的视频帧，一个用来存储转换后的帧
     AVPixelFormat pix_fmt_out = AV_PIX_FMT_RGBA;
     AVFrame *p_frame_yuv = av_frame_alloc();
     int num_yuv = av_image_get_buffer_size(p_video_code_ctx->pix_fmt, p_video_code_ctx->width, p_video_code_ctx->height, 1);
@@ -74,6 +79,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
     uint8_t* p_data_rgb = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_rgb)*sizeof(uint8_t)));
     av_image_fill_arrays(p_frame_rgb->data, p_frame_rgb->linesize, p_data_rgb, pix_fmt_out, width_out, height_out, 1);
 
+    // 获取图像转换相关对象
     struct SwsContext *p_sws_context = nullptr;
     p_sws_context = sws_getCachedContext(p_sws_context, p_video_code_ctx->width, p_video_code_ctx->height, p_video_code_ctx->pix_fmt,
         width_out, height_out, pix_fmt_out, SWS_BICUBIC, nullptr, nullptr, nullptr);
@@ -89,6 +95,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
         if (pkt.stream_index != index_video){
             continue;
         }
+        // 这里使用了新版的解码函数，avcodec_send_packet后不一定能avcodec_receive_frame到帧，涉及到I、P、B帧的解码流程
         int re = avcodec_send_packet(p_video_code_ctx ,&pkt);
         if (0 > ret)
         {
@@ -96,6 +103,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
             continue;
         }
         while(!*p_stop){
+            // 要反复调用avcodec_receive_frame，直到无法获取到帧
             re = avcodec_receive_frame(p_video_code_ctx, p_frame_yuv);
             if (re != 0)
             {
@@ -112,14 +120,18 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
                     p_info->data_max = static_cast<std::size_t>(num_rgb);
                     fun(p_info);
                 }
+                // 如果不延迟，因为解码的速度很快，显示又是依赖于解码，会导致播放速度非常快，这里不应该写死，应该按照视频流的time_base来计算延迟
                 std::this_thread::sleep_for(std::chrono::milliseconds(40));
             }else{
                 LOG_ERROR("获取缩放上下文失败; 宽度:"<<p_frame_yuv->width<<"; 高度:"<<p_frame_yuv->height<<"; 帧格式:"<<static_cast<AVPixelFormat>(p_frame_yuv->format));
                 break;
             }
         }
+        // 释放数据包
         av_packet_unref(&pkt);
     }
+
+    // 清理相关对象
     if(nullptr != p_sws_context){
         sws_freeContext(p_sws_context);
         p_sws_context = nullptr;
