@@ -15,6 +15,7 @@ face_recognition::face_recognition()
 void face_recognition::start(){
     try{
         Ptr<LBPHFaceRecognizer> p_model = LBPHFaceRecognizer::create();
+        // 获取训练图片集合
         std::vector<info_recognition_ptr> infos;
         if(!find_face_info(infos, "./face")){
             return;
@@ -23,11 +24,13 @@ void face_recognition::start(){
         std::vector<int> labels;
         for(auto& p_info : infos){
             for(auto& f : p_info->files){
+                // 这里记得是IMREAD_GRAYSCALE，即灰度图片，不然会报错
                 images.push_back(imread(f, cv::IMREAD_GRAYSCALE));
                 labels.push_back(p_info->index);
             }
             m_index_to_name.insert(std::make_pair(p_info->index, p_info->name));
         }
+        // 训练模型
         p_model->train(images, labels);
         mp_model = p_model;
 
@@ -49,18 +52,21 @@ bool face_recognition::train(unsigned char *p_data, int width, int height){
         if(!mp_model || !mp_cascade){
             return false;
         }
+        // 原始图片数据转成灰度图片
         cv::Mat bgr(cv::Size(width, height), CV_8UC3);
         bgr.data = p_data;
         cv::Mat gray;
         gray.create(bgr.size(), bgr.type());
         cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
 
+        // 先人脸检测，再人脸识别
         std::vector<cv::Rect> rect;
         mp_cascade->detectMultiScale(gray, rect, 1.1, 3, 0);
         for (auto& r : rect)
         {
             bool flag_find_face = false;
             std::string name;
+            // 复制出检测出来的人脸，然后转换成灰度图片，不转换会报错
             cv::Mat desc;
             bgr(r).copyTo(desc);
             cv::Mat gray_desc;
@@ -68,6 +74,7 @@ bool face_recognition::train(unsigned char *p_data, int width, int height){
             cv::cvtColor(desc, gray_desc, cv::COLOR_BGR2GRAY);
             int index = -1;
             double confidence = 0.0;
+            // 实际总会返回一个检测结果，置信度暂时不知道怎么使用
             mp_model->predict(gray_desc, index, confidence);
             if(0 > index){
 
