@@ -8,7 +8,11 @@
 
 class info_face{
 public:
-
+    unsigned char* p_data = nullptr;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
 };
 typedef std::shared_ptr<info_face>  info_face_ptr;
 
