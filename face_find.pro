@@ -24,6 +24,7 @@ DEFINES += BOOST_NO_AUTO_PTR
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 CONFIG += c++11
+CONFIG += debug_and_release
 
 SOURCES += \
         main.cpp \
@@ -31,14 +32,14 @@ SOURCES += \
     media_decoder.cpp \
     utility_tool.cpp \
     log.cpp \
-    face_detection.cpp
+    face_recognition.cpp
 
 HEADERS += \
         MainWindow.h \
     media_decoder.h \
     utility_tool.h \
     log.h \
-    face_detection.h
+    face_recognition.h
 
 FORMS += \
         MainWindow.ui
@@ -46,7 +47,12 @@ FORMS += \
 
 INCLUDEPATH += D:/qt_files/include
 LIBS += -LD:/qt_files/lib -lavformat -lavdevice -lavcodec  -lavutil -lswresample -lavfilter -lpostproc -lswscale
+
+CONFIG(debug, debug|release) {
 LIBS += -LD:/qt_files/lib -lopencv_world420d
+}else{
+LIBS += -LD:/qt_files/lib -lopencv_world420
+}
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

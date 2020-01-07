@@ -1,7 +1,7 @@
 ﻿#include "media_decoder.h"
 #include "utility_tool.h"
 #include <vector>
-#include "face_detection.h"
+#include "face_recognition.h"
 #include <opencv2/opencv.hpp>
 
 #define FREE_SWS(P) {if(nullptr != P){sws_freeContext(P);P = nullptr;}}
@@ -36,7 +36,8 @@ void media_decoder::handle_media(std::string url, fun_type fun, std::shared_ptr<
 }
 
 void media_decoder::work(std::string url, fun_type fun, int width_out, int height_out, std::shared_ptr<std::atomic_bool> p_stop){
-    face_detection_ptr p_detection = std::make_shared<face_detection>();
+    auto p_recognition = std::make_shared<face_recognition>();
+    p_recognition->start();
     AVFormatContext *p_context = nullptr;
     // 打开视频
     auto ret = avformat_open_input(&p_context, url.c_str(), nullptr, nullptr);
@@ -133,8 +134,7 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
             if(nullptr != p_sws_context_bgr){
                 auto h = sws_scale(p_sws_context_bgr, p_frame_yuv->data, p_frame_yuv->linesize, 0, p_video_code_ctx->height, p_frame_bgr->data, p_frame_bgr->linesize);
                 if(0 < h && fun){
-                    std::vector<info_face_ptr> faces;
-                    p_detection->detection_face(faces, p_data_bgr, width_bgr, height_bgr);
+                    p_recognition->train(p_data_bgr, width_bgr, height_bgr);
 
                     // 需要将AV_PIX_FMT_BGR24转换为AV_PIX_FMT_RGBA，因为QImage需要这种格式
                     h = sws_scale(p_sws_context_out, p_frame_bgr->data, p_frame_bgr->linesize, 0, height_bgr, p_frame_out->data, p_frame_out->linesize);
