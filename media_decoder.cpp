@@ -1,7 +1,12 @@
 ﻿#include "media_decoder.h"
 #include "utility_tool.h"
 #include <vector>
+#include "face_detection.h"
+#include <opencv2/opencv.hpp>
 
+#define FREE_SWS(P) {if(nullptr != P){sws_freeContext(P);P = nullptr;}}
+#define FREE_FRAME(P) {if(nullptr != P){av_frame_free(&P);P = nullptr;}}
+#define FREE_DATA(P) {if(nullptr != P){av_free(P);P = nullptr;}}
 
 media_decoder::media_decoder(const std::string& url, fun_type fun):m_url(url), m_fun(fun)
 {
@@ -31,6 +36,7 @@ void media_decoder::handle_media(std::string url, fun_type fun, std::shared_ptr<
 }
 
 void media_decoder::work(std::string url, fun_type fun, int width_out, int height_out, std::shared_ptr<std::atomic_bool> p_stop){
+    face_detection_ptr p_detection = std::make_shared<face_detection>();
     AVFormatContext *p_context = nullptr;
     // 打开视频
     auto ret = avformat_open_input(&p_context, url.c_str(), nullptr, nullptr);
@@ -67,23 +73,36 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
         return;
     }
 
-    // 申请了两个Frame，一个用来存储解码后的视频帧，一个用来存储转换后的帧
-    AVPixelFormat pix_fmt_out = AV_PIX_FMT_RGBA;
+    // 申请了三个Frame，一个用来存储解码后的视频帧，一个用来存储OpenCV的帧AV_PIX_FMT_BGR24，一个存储AV_PIX_FMT_RGBA用来显示
+
     AVFrame *p_frame_yuv = av_frame_alloc();
     int num_yuv = av_image_get_buffer_size(p_video_code_ctx->pix_fmt, p_video_code_ctx->width, p_video_code_ctx->height, 1);
     uint8_t* p_data_yuv = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_yuv)*sizeof(uint8_t)));
     av_image_fill_arrays(p_frame_yuv->data, p_frame_yuv->linesize, p_data_yuv, p_video_code_ctx->pix_fmt, p_video_code_ctx->width, p_video_code_ctx->height, 1);
 
-    AVFrame *p_frame_rgb = av_frame_alloc();
-    int num_rgb = av_image_get_buffer_size(pix_fmt_out, width_out, height_out, 1);
-    uint8_t* p_data_rgb = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_rgb)*sizeof(uint8_t)));
-    av_image_fill_arrays(p_frame_rgb->data, p_frame_rgb->linesize, p_data_rgb, pix_fmt_out, width_out, height_out, 1);
+    AVPixelFormat pix_fmt_bgr = AV_PIX_FMT_BGR24;
+    AVFrame *p_frame_bgr = av_frame_alloc();
+    int num_bgr = av_image_get_buffer_size(pix_fmt_bgr, p_video_code_ctx->width, p_video_code_ctx->height, 1);
+    uint8_t* p_data_bgr = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_bgr)*sizeof(uint8_t)));
+    av_image_fill_arrays(p_frame_bgr->data, p_frame_bgr->linesize, p_data_bgr, pix_fmt_bgr, p_video_code_ctx->width, p_video_code_ctx->height, 1);
+
+    AVPixelFormat pix_fmt_out = AV_PIX_FMT_RGBA;
+    AVFrame *p_frame_out = av_frame_alloc();
+    int num_out = av_image_get_buffer_size(pix_fmt_out, width_out, height_out, 1);
+    uint8_t* p_data_out = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_out)*sizeof(uint8_t)));
+    av_image_fill_arrays(p_frame_out->data, p_frame_out->linesize, p_data_out, pix_fmt_out, width_out, height_out, 1);
 
     // 获取图像转换相关对象
-    struct SwsContext *p_sws_context = nullptr;
-    p_sws_context = sws_getCachedContext(p_sws_context, p_video_code_ctx->width, p_video_code_ctx->height, p_video_code_ctx->pix_fmt,
+    struct SwsContext *p_sws_context_bgr = nullptr;
+    p_sws_context_bgr = sws_getCachedContext(p_sws_context_bgr, p_video_code_ctx->width, p_video_code_ctx->height, p_video_code_ctx->pix_fmt,
+        p_video_code_ctx->width, p_video_code_ctx->height, pix_fmt_bgr, SWS_BICUBIC, nullptr, nullptr, nullptr);
+    if(nullptr == p_sws_context_bgr){
+        return;
+    }
+    struct SwsContext *p_sws_context_out = nullptr;
+    p_sws_context_out = sws_getCachedContext(p_sws_context_out, p_video_code_ctx->width, p_video_code_ctx->height, pix_fmt_bgr,
         width_out, height_out, pix_fmt_out, SWS_BICUBIC, nullptr, nullptr, nullptr);
-    if(nullptr == p_sws_context){
+    if(nullptr == p_sws_context_out){
         return;
     }
     while(!*p_stop){
@@ -110,14 +129,19 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
                 break;
             }
 
-            if(nullptr != p_sws_context){
-                auto h = sws_scale(p_sws_context, p_frame_yuv->data, p_frame_yuv->linesize, 0, p_video_code_ctx->height, p_frame_rgb->data, p_frame_rgb->linesize);
+            if(nullptr != p_sws_context_bgr){
+                auto h = sws_scale(p_sws_context_bgr, p_frame_yuv->data, p_frame_yuv->linesize, 0, p_video_code_ctx->height, p_frame_bgr->data, p_frame_bgr->linesize);
                 if(0 < h && fun){
+                    p_detection->detection_face(p_data_bgr, width_out, height_out);
+
+                    // 需要将AV_PIX_FMT_BGR24转换为AV_PIX_FMT_RGBA，因为QImage需要这种格式
+                    h = sws_scale(p_sws_context_out, p_frame_bgr->data, p_frame_bgr->linesize, 0, p_video_code_ctx->height, p_frame_out->data, p_frame_out->linesize);
+
                     auto p_info = std::make_shared<info_data>();
-                    p_info->p_data = p_data_rgb;
+                    p_info->p_data = p_data_out;
                     p_info->width = width_out;
                     p_info->height = height_out;
-                    p_info->data_max = static_cast<std::size_t>(num_rgb);
+                    p_info->data_max = static_cast<std::size_t>(num_out);
                     fun(p_info);
                 }
                 // 如果不延迟，因为解码的速度很快，显示又是依赖于解码，会导致播放速度非常快，这里不应该写死，应该按照视频流的time_base来计算延迟
@@ -132,26 +156,14 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
     }
 
     // 清理相关对象
-    if(nullptr != p_sws_context){
-        sws_freeContext(p_sws_context);
-        p_sws_context = nullptr;
-    }
-    if(nullptr != p_frame_rgb){
-        av_frame_free(&p_frame_rgb);
-        p_frame_rgb = nullptr;
-    }
-    if(nullptr != p_data_rgb){
-        av_free(p_data_rgb);
-        p_data_rgb = nullptr;
-    }
-    if(nullptr != p_frame_yuv){
-        av_frame_free(&p_frame_yuv);
-        p_frame_yuv = nullptr;
-    }
-    if(nullptr != p_data_yuv){
-        av_free(p_data_yuv);
-        p_data_yuv = nullptr;
-    }
+    FREE_SWS(p_sws_context_bgr);
+    FREE_SWS(p_sws_context_out);
+    FREE_FRAME(p_frame_out);
+    FREE_DATA(p_data_out);
+    FREE_FRAME(p_frame_bgr);
+    FREE_DATA(p_data_bgr);
+    FREE_FRAME(p_frame_yuv);
+    FREE_DATA(p_data_yuv);
     if(nullptr != p_context){
         avformat_close_input(&p_context);
         p_context = nullptr;

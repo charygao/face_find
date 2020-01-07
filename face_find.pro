@@ -30,13 +30,15 @@ SOURCES += \
         MainWindow.cpp \
     media_decoder.cpp \
     utility_tool.cpp \
-    log.cpp
+    log.cpp \
+    face_detection.cpp
 
 HEADERS += \
         MainWindow.h \
     media_decoder.h \
     utility_tool.h \
-    log.h
+    log.h \
+    face_detection.h
 
 FORMS += \
         MainWindow.ui
@@ -44,6 +46,7 @@ FORMS += \
 
 INCLUDEPATH += D:/qt_files/include
 LIBS += -LD:/qt_files/lib -lavformat -lavdevice -lavcodec  -lavutil -lswresample -lavfilter -lpostproc -lswscale
+LIBS += -LD:/qt_files/lib -lopencv_world420d
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
