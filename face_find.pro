@@ -16,6 +16,7 @@ TEMPLATE = app
 # depend on your compiler). Please consult the documentation of the
 # deprecated API in order to know how to port your code away from it.
 DEFINES += QT_DEPRECATED_WARNINGS
+DEFINES += BOOST_NO_AUTO_PTR
 
 # You can also make your code fail to compile if you use deprecated APIs.
 # In order to do so, uncomment the following line.
@@ -26,13 +27,23 @@ CONFIG += c++11
 
 SOURCES += \
         main.cpp \
-        MainWindow.cpp
+        MainWindow.cpp \
+    media_decoder.cpp \
+    utility_tool.cpp \
+    log.cpp
 
 HEADERS += \
-        MainWindow.h
+        MainWindow.h \
+    media_decoder.h \
+    utility_tool.h \
+    log.h
 
 FORMS += \
         MainWindow.ui
+
+
+INCLUDEPATH += D:/qt_files/include
+LIBS += -LD:/qt_files/lib -lavformat -lavdevice -lavcodec  -lavutil -lswresample -lavfilter -lpostproc -lswscale
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
