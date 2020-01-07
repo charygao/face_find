@@ -81,10 +81,11 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
     av_image_fill_arrays(p_frame_yuv->data, p_frame_yuv->linesize, p_data_yuv, p_video_code_ctx->pix_fmt, p_video_code_ctx->width, p_video_code_ctx->height, 1);
 
     AVPixelFormat pix_fmt_bgr = AV_PIX_FMT_BGR24;
+    int width_bgr = p_video_code_ctx->width, height_bgr = p_video_code_ctx->height;
     AVFrame *p_frame_bgr = av_frame_alloc();
-    int num_bgr = av_image_get_buffer_size(pix_fmt_bgr, p_video_code_ctx->width, p_video_code_ctx->height, 1);
+    int num_bgr = av_image_get_buffer_size(pix_fmt_bgr, width_bgr, height_bgr, 1);
     uint8_t* p_data_bgr = static_cast<uint8_t *>(av_malloc(static_cast<std::size_t>(num_bgr)*sizeof(uint8_t)));
-    av_image_fill_arrays(p_frame_bgr->data, p_frame_bgr->linesize, p_data_bgr, pix_fmt_bgr, p_video_code_ctx->width, p_video_code_ctx->height, 1);
+    av_image_fill_arrays(p_frame_bgr->data, p_frame_bgr->linesize, p_data_bgr, pix_fmt_bgr, width_bgr, height_bgr, 1);
 
     AVPixelFormat pix_fmt_out = AV_PIX_FMT_RGBA;
     AVFrame *p_frame_out = av_frame_alloc();
@@ -95,12 +96,12 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
     // 获取图像转换相关对象
     struct SwsContext *p_sws_context_bgr = nullptr;
     p_sws_context_bgr = sws_getCachedContext(p_sws_context_bgr, p_video_code_ctx->width, p_video_code_ctx->height, p_video_code_ctx->pix_fmt,
-        p_video_code_ctx->width, p_video_code_ctx->height, pix_fmt_bgr, SWS_BICUBIC, nullptr, nullptr, nullptr);
+        width_bgr, height_bgr, pix_fmt_bgr, SWS_BICUBIC, nullptr, nullptr, nullptr);
     if(nullptr == p_sws_context_bgr){
         return;
     }
     struct SwsContext *p_sws_context_out = nullptr;
-    p_sws_context_out = sws_getCachedContext(p_sws_context_out, p_video_code_ctx->width, p_video_code_ctx->height, pix_fmt_bgr,
+    p_sws_context_out = sws_getCachedContext(p_sws_context_out, width_bgr, height_bgr, pix_fmt_bgr,
         width_out, height_out, pix_fmt_out, SWS_BICUBIC, nullptr, nullptr, nullptr);
     if(nullptr == p_sws_context_out){
         return;
@@ -132,10 +133,11 @@ void media_decoder::work(std::string url, fun_type fun, int width_out, int heigh
             if(nullptr != p_sws_context_bgr){
                 auto h = sws_scale(p_sws_context_bgr, p_frame_yuv->data, p_frame_yuv->linesize, 0, p_video_code_ctx->height, p_frame_bgr->data, p_frame_bgr->linesize);
                 if(0 < h && fun){
-                    p_detection->detection_face(p_data_bgr, width_out, height_out);
+                    std::vector<info_face_ptr> faces;
+                    p_detection->detection_face(faces, p_data_bgr, width_bgr, height_bgr);
 
                     // 需要将AV_PIX_FMT_BGR24转换为AV_PIX_FMT_RGBA，因为QImage需要这种格式
-                    h = sws_scale(p_sws_context_out, p_frame_bgr->data, p_frame_bgr->linesize, 0, p_video_code_ctx->height, p_frame_out->data, p_frame_out->linesize);
+                    h = sws_scale(p_sws_context_out, p_frame_bgr->data, p_frame_bgr->linesize, 0, height_bgr, p_frame_out->data, p_frame_out->linesize);
 
                     auto p_info = std::make_shared<info_data>();
                     p_info->p_data = p_data_out;
